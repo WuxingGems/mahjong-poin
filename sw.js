@@ -1,8 +1,8 @@
 // Simpan file app supaya bisa dibuka tanpa internet. Naikkan VERSION tiap ada perubahan file.
-const VERSION = 'mahjong-poin-v2';
+const VERSION = 'mahjong-poin-v3';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icon.svg',
-  'js/app.js', 'js/tiles.js', 'js/decompose.js',
+  'js/app.js', 'js/tiles.js', 'js/decompose.js', 'js/game.js', 'js/net.js',
   'js/rules/index.js', 'js/rules/common.js', 'js/rules/classical.js', 'js/rules/hongkong.js',
 ];
 
@@ -20,6 +20,7 @@ self.addEventListener('activate', (e) => {
 // Jaringan dulu (supaya selalu versi terbaru), cadangan dari simpanan kalau offline.
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  if (e.request.url.includes('/api/')) return; // data server ruang jangan disimpan
   e.respondWith(
     fetch(e.request)
       .then((res) => {

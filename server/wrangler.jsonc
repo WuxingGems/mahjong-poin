@@ -1,0 +1,12 @@
+{
+  // Server ruang permainan Mahjong Poin (Cloudflare Worker + Durable Object).
+  // Uji lokal:  npx wrangler@4 dev     Pasang:  npx wrangler@4 deploy
+  "name": "mahjong-poin-server",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "observability": { "enabled": true }
+}

@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import * as classical from '../js/rules/classical.js';
 import * as hongkong from '../js/rules/hongkong.js';
+import * as G from '../js/game.js';
 
 // "123m456p77z" -> indeks ubin. m=Karakter p=Bulat s=Bambu z=1..7 (Timur,Selatan,Barat,Utara,Putih,Hijau,Merah)
 function parse(str) {
@@ -85,6 +86,36 @@ test('HK: bayar dari buangan (setengah) & tarik sendiri', () => {
   assert.deepEqual(s.net, [-16, 48, -16, -16]);
   s = hongkong.settle({ results, winner: 1, discarder: 3, selfDrawn: false, settings: { ...hongkong.defaults, payMode: 'full' } });
   assert.deepEqual(s.net, [0, 32, 0, -32]);
+});
+
+test('Alur permainan: catat pemenang → isi 4 tangan → simpan → dealer pindah', () => {
+  let s = G.initialState();
+  s = G.reduce(s, { type: 'start' });
+  s = G.reduce(s, { type: 'declare', winner: 1, selfDrawn: true });
+  const hands = { 1: parse('222m345p678s11777z'), 2: parse('555p13m66z2468s9s'), 3: parse('1234567m123456p'), 0: parse('555s13m2468p1357s') };
+  for (const p of [0, 1, 2, 3]) s = G.reduce(s, { type: 'hand', seat: p, tiles: hands[p] });
+  assert.equal(G.allSubmitted(s), false);
+  for (const p of [0, 1, 2, 3]) s = G.reduce(s, { type: 'hand', seat: p, submitted: true });
+  assert.equal(G.allSubmitted(s), true);
+  const r = G.computeResult(s);
+  assert.equal(r.net.reduce((a, b) => a + b, 0), 0);
+  s = G.reduce(s, { type: 'commit' });
+  assert.equal(s.cur, null);
+  assert.equal(s.game.dealer, 1);
+  assert.deepEqual(s.game.totals, r.net);
+  s = G.reduce(s, { type: 'undo' });
+  assert.deepEqual(s.game.totals, [0, 0, 0, 0]);
+  assert.equal(s.game.dealer, 0);
+});
+
+test('Kursi: tidak bisa merebut kursi orang lain', () => {
+  let s = G.initialState();
+  s = G.reduce(s, { type: 'claim', seat: 0, clientId: 'a', name: 'Calvin' });
+  s = G.reduce(s, { type: 'claim', seat: 0, clientId: 'b', name: 'Eva' });
+  assert.equal(s.seats[0], 'a');
+  s = G.reduce(s, { type: 'claim', seat: 2, clientId: 'b', name: 'Eva' });
+  s = G.reduce(s, { type: 'claim', seat: 1, clientId: 'a' });
+  assert.deepEqual(s.seats, [null, 'a', 'b', null]);
 });
 
 console.log(`\nSemua ${n} tes lulus.`);
