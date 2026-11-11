@@ -3,7 +3,7 @@
 import { reduce } from './game.js';
 
 const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
-export const SERVER = LOCAL ? 'http://localhost:8787' : 'https://mahjong-poin-server.REPLACE.workers.dev';
+export const SERVER = LOCAL ? 'http://localhost:8787' : 'https://mahjong-poin-server.mahjongpoin.workers.dev';
 const WS_SERVER = SERVER.replace(/^http/, 'ws');
 
 export async function createRoom(opts) {
