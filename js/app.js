@@ -1,7 +1,7 @@
 import { RULES, COMING } from './rules/index.js';
 import { tileHTML, flowerHTML, windTileHTML, WIND_NAME, countsOf } from './tiles.js';
 import * as G from './game.js';
-import { createRoom, roomExists, connectRoom } from './net.js';
+import { createRoom, roomExists, connectRoom, readTiles, visionInfo } from './net.js';
 
 const SOLO_KEY = 'mahjong-poin-v1';
 // ?hp=2 hanya untuk uji coba: satu browser berpura-pura jadi HP lain.
@@ -26,9 +26,7 @@ function loadSolo() {
     n.game = s.game || null;
     return n;
   }
-  for (const id in RULES) s.settings[id] = { ...RULES[id].defaults, ...(s.settings[id] || {}) };
-  if (!RULES[s.rule]) s.rule = 'classical';
-  return s;
+  return G.normalize(s);
 }
 const prefs = store.get(PREF_KEY) || {};
 if (!prefs.clientId) prefs.clientId = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)) ;
@@ -38,7 +36,14 @@ savePrefs();
 let solo = loadSolo();
 let S = null; // state permainan yang sedang tampil
 let conn = null;
-const U = { mode: null, screen: null, draft: null, editSeat: null, handSeat: null, status: '', code: null };
+const U = { mode: null, screen: null, draft: null, editSeat: null, handSeat: null, status: '', code: null, tips: new Set(), photos: {}, reading: false, vision: null };
+const MODELS = [
+  ['free', 'Gratis (Cloudflare AI)'],
+  ['haiku', 'Claude Haiku 5.5 — cepat & murah'],
+  ['sonnet', 'Claude Sonnet 5.5 — seimbang'],
+  ['opus', 'Claude Opus 5.5 — paling teliti'],
+];
+if (!prefs.visionModel) prefs.visionModel = 'free';
 
 // ---------- helpers ----------
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -103,7 +108,7 @@ function enterRoom(code) {
   prefs.mode = 'online'; prefs.room = code; savePrefs();
   setUrl(code);
   conn = connectRoom(code, prefs.clientId, {
-    onState(st) { const before = S; S = st; afterChange(before, S); render(); },
+    onState(st) { const before = S; S = G.normalize(st); afterChange(before, S); render(); },
     onStatus(x) {
       U.status = x;
       if (x === 'gone') { toast('Ruang tidak ditemukan atau sudah kedaluwarsa.'); leaveRoom(); return; }
@@ -138,16 +143,27 @@ function currentScreen() {
 }
 
 // ---------- potongan tampilan ----------
-function fieldHTML(sp, val) {
-  if (sp.type === 'bool') return `<label class="check"><input type="checkbox" data-opt="${sp.key}" ${val ? 'checked' : ''}> ${sp.label}</label>`;
-  if (sp.type === 'select') return `<label class="field"><span>${sp.label}</span><select data-opt="${sp.key}">${sp.options.map(([v, l]) => `<option value="${v}" ${v === val ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
-  return `<label class="field"><span>${sp.label}</span><input type="number" inputmode="numeric" data-focus="opt-${sp.key}" data-opt="${sp.key}" value="${val}"></label>`;
+/** Tombol "?" + kotak penjelasan yang muncul kalau diketuk. */
+function tipBtn(id, text) {
+  return text ? `<button type="button" class="info ${U.tips.has(id) ? 'on' : ''}" data-act="tip" data-tip="${id}" aria-label="Penjelasan">?</button>` : '';
+}
+function tipBox(id, text) {
+  return text ? `<div class="tipbox" data-tipbox="${id}" ${U.tips.has(id) ? '' : 'hidden'}>${text}</div>` : '';
+}
+function fieldHTML(sp, val, attr = 'data-opt') {
+  const id = `${attr}-${sp.key}`;
+  let ctl;
+  if (sp.type === 'bool') ctl = `<label class="check"><input type="checkbox" ${attr}="${sp.key}" ${val ? 'checked' : ''}> ${sp.label}</label>`;
+  else if (sp.type === 'select') ctl = `<label class="field"><span>${sp.label}</span><select ${attr}="${sp.key}">${sp.options.map(([v, l]) => `<option value="${v}" ${v === val ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+  else ctl = `<label class="field"><span>${sp.label}</span><input type="number" inputmode="numeric" min="0" data-focus="${id}" ${attr}="${sp.key}" value="${val ?? 0}"></label>`;
+  return `<div class="opt">${ctl}${tipBtn(id, sp.info)}</div>${tipBox(id, sp.info)}`;
 }
 function ruleCardHTML(withDealer) {
   const R = G.ruleOf(S), st = G.settingsOf(S);
   return `<div class="card">
     <h3>Aturan main</h3>
     <select data-set="rule">${Object.values(RULES).map((r) => `<option value="${r.id}" ${r.id === S.rule ? 'selected' : ''}>${r.name}</option>`).join('')}${COMING.map((c) => `<option disabled>${c.name}</option>`).join('')}</select>
+    <p class="ruledesc">${R.desc}</p>
     ${R.settingsSpec.map((sp) => fieldHTML(sp, st[sp.key])).join('')}
     ${withDealer ? `<label class="field"><span>Dealer (Timur) pertama</span><select data-set="firstDealer">${P4.map((i) => `<option value="${i}" ${S.firstDealer === i ? 'selected' : ''}>${esc(nameOf(i))}</option>`).join('')}</select></label>` : ''}
   </div>`;
@@ -162,6 +178,7 @@ function histHTML(h) {
   return `<div class="hist-item"><b>#${h.no}</b> ${who}<br>${h.net.map((v, i) => `${esc(nameOf(i))} <span class="${cls(v)}">${fmt(v)}</span>`).join(' · ')}</div>`;
 }
 function itemValue(x) {
+  if (x.val) return x.val;
   if (x.pts) return `+${x.pts}`;
   if (x.dbl) return `×${2 ** x.dbl}`;
   if (x.faan) return `${x.faan} faan`;
@@ -174,13 +191,65 @@ function scoreHTML(res, h) {
     <h3>Susunan terbaca — samakan Terbuka/Tertutup dengan di meja</h3>
     <div class="groups">${res.groups.map((g) => `<div class="group"><div class="set">${groupTiles(g).map((t) => tileHTML(t)).join('')}</div>
       ${g.type !== 'pair' ? `<button class="toggle ${h.open[g.key] ? 'open' : ''}" data-act="toggle-open" data-key="${g.key}">${h.open[g.key] ? 'Terbuka' : 'Tertutup'}</button>` : ''}</div>`).join('')}</div>` : '';
-  const rows = res.items.filter((x) => x.pts || x.dbl || x.faan || x.note);
+  const rows = res.items.filter((x) => x.val || x.pts || x.dbl || x.faan || x.note);
   return `${groups}
     <h3>Hitungan</h3>
     <table class="score">${rows.map((x) => `<tr><td>${x.label}</td><td class="n">${itemValue(x)}</td></tr>`).join('') || '<tr><td class="muted">Tidak ada poin</td><td></td></tr>'}
       <tr class="total"><td>Total</td><td class="n">${res.summary}</td></tr></table>
     ${res.warning ? `<p class="warn">${res.warning}</p>` : ''}`;
 }
+const photoKey = () => `${S?.game?.handNo}-${U.handSeat}`;
+const modelName = () => (MODELS.find((m) => m[0] === prefs.visionModel) || MODELS[0])[1];
+
+// Kode dari AI -> indeks ubin. m=karakter, p=bulat, s=bambu.
+function codesToTiles(codes) {
+  const tiles = [], flowers = [];
+  const HON = { E: 27, S: 28, W: 29, N: 30, WH: 31, GR: 32, RD: 33 };
+  for (const raw of codes || []) {
+    const c = String(raw).trim().toUpperCase();
+    let t = null;
+    const m = c.match(/^([1-9])([MPS])$/);
+    if (m) t = { M: 0, P: 9, S: 18 }[m[2]] + (+m[1] - 1);
+    else if (HON[c] != null) t = HON[c];
+    else if (/^F[1-8]$/.test(c)) { const f = +c[1]; if (!flowers.includes(f)) flowers.push(f); continue; }
+    if (t != null && tiles.filter((x) => x === t).length < 4) tiles.push(t);
+  }
+  return { tiles, flowers };
+}
+
+async function shrinkPhoto(file, max = 1600) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('Foto tidak bisa dibuka.')); i.src = url; });
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    return cv.toDataURL('image/jpeg', 0.85);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function onPhoto(file) {
+  if (!file || !S?.cur || U.handSeat == null) return;
+  const seat = U.handSeat, key = photoKey();
+  U.reading = true; render();
+  try {
+    const dataUrl = await shrinkPhoto(file);
+    U.photos[key] = dataUrl; render();
+    const r = await readTiles(dataUrl, prefs.visionModel);
+    let { tiles, flowers } = codesToTiles(r.tiles);
+    if (G.settingsOf(S).flowersOn === false) flowers = [];
+    if (!tiles.length && !flowers.length) toast('Tidak ada ubin yang terbaca. Coba foto lebih dekat & terang, atau ketuk ubin manual.');
+    else {
+      dispatch({ type: 'hand', seat, tiles, flowers, open: {} });
+      toast(`Terbaca ${tiles.length} ubin${flowers.length ? ` + ${flowers.length} bunga` : ''}. Cocokkan dengan foto ya.`);
+    }
+  } catch (err) {
+    toast(err.message || 'Gagal membaca foto. Cek internet lalu coba lagi.');
+  }
+  U.reading = false; render();
+}
+
 function tablePos(p) {
   const me = mySeat(), rot = me >= 0 ? me : 0;
   return ['s-bot', 's-right', 's-top', 's-left'][(p - rot + 4) % 4];
@@ -227,6 +296,14 @@ function viewSetup() {
     ${P4.map((i) => `<label class="field"><span>Kursi ${i + 1}${online && S.seats[i] ? ' · pakai HP' : ''}</span><input type="text" data-focus="name${i}" data-name="${i}" value="${esc(S.names[i] || '')}" placeholder="Pemain ${i + 1}" maxlength="20"></label>`).join('')}
   </div>
   ${ruleCardHTML(!inGame)}
+  <div class="card">
+    <h3>Pembaca foto (pengaturan HP ini)</h3>
+    <select data-set="vision">${MODELS.map(([v, l]) => {
+      const off = v !== 'free' && U.vision && !U.vision.claude;
+      return `<option value="${v}" ${v === prefs.visionModel ? 'selected' : ''} ${off ? 'disabled' : ''}>${l}${off ? ' — perlu kunci API' : ''}</option>`;
+    }).join('')}</select>
+    <p class="ruledesc">Yang gratis bisa langsung dicoba, tapi kurang teliti. Model Claude jauh lebih akurat, dan baru bisa dipilih setelah kunci API Anthropic dipasang di server. Apa pun hasilnya, ubin tetap bisa dibetulkan dengan diketuk.</p>
+  </div>
   ${!inGame && !online ? '<button class="btn primary big" data-act="start">Mulai permainan</button>' : '<div class="actions"><button class="btn primary" data-act="close-setup">Kembali ke meja</button></div>'}
   ${inGame ? `<div class="card"><h3>Permainan</h3><button class="btn danger big" data-act="new-game">Mulai permainan baru (skor direset${online ? ' untuk semua' : ''})</button></div>` : ''}
   <div class="actions">
@@ -284,6 +361,8 @@ function viewBoard() {
       <div class="sub">Tangan ke-${g.handNo}</div>
     </div>
   </div>
+  ${U.mode === 'online' && me < 0 ? `<div class="card"><h3>Kamu belum duduk</h3><p class="muted">Pilih kursimu supaya bisa mengisi ubin sendiri.</p>
+    <div class="row">${P4.filter((p) => !S.seats[p]).map((p) => `<button class="btn small" data-act="claim" data-p="${p}">${esc(nameOf(p))}</button>`).join('') || '<span class="muted">Semua kursi sudah dipakai HP lain.</span>'}</div></div>` : ''}
   <button class="btn primary big" data-act="new-hand">Tangan selesai — catat hasil</button>
   <p class="muted center" style="margin-top:10px">${esc(G.ruleOf(S).name)}</p>
   ${g.history.length ? `<div class="card"><h3>Riwayat</h3>${g.history.slice().reverse().map(histHTML).join('')}
@@ -307,8 +386,8 @@ function viewWho() {
       <button class="btn ${!c.selfDrawn ? 'on' : ''}" data-act="self" data-v="0">Dari buangan</button>
     </div>
     ${!c.selfDrawn ? `<h3>Siapa yang membuang?</h3><div class="row">${others.map((p) => `<button class="btn small ${c.discarder === p ? 'on' : ''}" data-act="discarder" data-p="${p}">${esc(nameOf(p))}</button>`).join('')}</div>` : ''}
-    <h3>Tambahan (centang kalau ada)</h3>
-    ${G.ruleOf(S).winExtras.map((x) => `<label class="check"><input type="checkbox" data-extra="${x.key}" ${c.extras[x.key] ? 'checked' : ''}> ${x.label}</label>`).join('')}
+    <h3>Tambahan (centang kalau ada) · ketuk ? untuk penjelasan</h3>
+    ${G.ruleOf(S).winExtras.map((x) => fieldHTML({ ...x, type: x.type || 'bool' }, c.extras[x.key], 'data-extra')).join('')}
   </div>` : ''}
   <div class="actions"><button class="btn ghost" data-act="who-cancel">Batal</button><button class="btn primary" data-act="who-next" ${canNext ? '' : 'disabled'}>Lanjut →</button></div>`;
 }
@@ -349,7 +428,11 @@ function viewHand() {
   ${need.length > 1 ? submitStrip(need, seat) : ''}
   <h2 class="who">${windBadge(seat)}<span>${esc(nameOf(seat))}${online && seat === me ? ' <small>(kamu)</small>' : ''}</span>${isW ? seal('胡', 'Menang') : ''}</h2>
   <p class="muted">${winInfo()}</p>
-  <button class="btn big" data-act="photo">${ICON_CAM}Foto tangan</button>
+  <button class="btn big" data-act="photo" ${U.reading ? 'disabled' : ''}>${ICON_CAM}${U.reading ? 'Membaca foto… (±10–30 detik)' : 'Foto tangan'}</button>
+  <p class="muted small center">Pembaca foto: ${esc(modelName())} · ganti di ⚙</p>
+  ${U.photos[photoKey()] ? `<div class="card photo"><img src="${U.photos[photoKey()]}" alt="Foto tangan">
+    <p class="muted small">Bandingkan dengan rak di bawah. Ubin salah? Ketuk untuk hapus, lalu ketuk yang benar di daftar.</p>
+    <button class="linkbtn" data-act="clear-photo">Tutup foto</button></div>` : ''}
   <div class="card">
     <h3>Di tangan · ${h.tiles.length} ubin${h.flowers.length ? ` + ${h.flowers.length} bunga` : ''} · ketuk untuk hapus</h3>
     <div class="rack" data-zone="hand">${h.tiles.map((t) => tileHTML(t)).join('')}${h.flowers.map((f) => flowerHTML(f)).join('')}${h.tiles.length || h.flowers.length ? '' : '<span class="empty">Rak masih kosong</span>'}</div>
@@ -463,10 +546,26 @@ const actions = {
     } catch { /* dibatalkan */ }
   },
   claim(b) {
-    const name = (prefs.myName || '').trim();
-    if (!name) { toast('Isi nama kamu dulu.'); $app.querySelector('[data-myname]')?.focus(); return; }
-    dispatch({ type: 'claim', seat: +b.dataset.p, clientId: prefs.clientId, name });
+    const seat = +b.dataset.p;
+    let name = (prefs.myName || '').trim();
+    if (S.game) name = ''; // sudah main: pakai nama kursi yang ada
+    else if (!name) { toast('Isi nama kamu dulu.'); $app.querySelector('[data-myname]')?.focus(); return; }
+    const me = mySeat();
+    if (name && P4.some((p) => p !== seat && p !== me && S.seats[p] && S.names[p].trim().toLowerCase() === name.toLowerCase()))
+      return toast(`Nama "${name}" sudah dipakai pemain lain. Ganti nama kamu dulu.`);
+    dispatch({ type: 'claim', seat, clientId: prefs.clientId, name });
   },
+  tip(b) {
+    const id = b.dataset.tip, box = $app.querySelector(`[data-tipbox="${id}"]`);
+    if (U.tips.has(id)) U.tips.delete(id); else U.tips.add(id);
+    if (box) box.hidden = !U.tips.has(id);
+    b.classList.toggle('on', U.tips.has(id));
+  },
+  'pick-photo'() {
+    if (U.reading) return;
+    document.getElementById('photo-input').click();
+  },
+  'clear-photo'() { delete U.photos[photoKey()]; render(); },
   start() { dispatch({ type: 'start' }); },
   'close-setup'() { U.screen = null; go(); },
   'new-game'() { if (confirm('Reset semua skor dan mulai permainan baru?')) { U.screen = null; dispatch({ type: 'new-game' }); } },
@@ -486,14 +585,18 @@ const actions = {
     dispatch({ type: 'declare', winner: d.winner, selfDrawn: d.selfDrawn, discarder: d.discarder, extras: d.extras });
     window.scrollTo(0, 0);
   },
-  photo() { toast('Baca foto otomatis menyusul — 3 model AI diuji dulu pakai foto ubinmu. Sementara ketuk ubin di bawah.'); },
+  photo() { actions['pick-photo'](); },
   'clear-hand'() { dispatch({ type: 'hand', seat: U.handSeat, tiles: [], flowers: [], open: {} }); },
   'toggle-open'(b) {
     const open = { ...curHand().open, [b.dataset.key]: !curHand().open[b.dataset.key] };
     dispatch({ type: 'hand', seat: U.handSeat, open });
   },
   'hand-submit'() {
-    const seat = U.handSeat;
+    const seat = U.handSeat, h = curHand(), res = G.scoreSeat(S, seat);
+    if (seat !== S.cur.winner && G.ruleOf(S).needsAllHands) {
+      if (!h.tiles.length && !confirm('Rak masih kosong. Kirim saja? Skor tangan ini dihitung 0.')) return;
+      if (h.tiles.length && res.warning && !confirm(`${res.warning}\n\nTetap kirim?`)) return;
+    }
     U.editSeat = null;
     dispatch({ type: 'hand', seat, submitted: true });
     window.scrollTo(0, 0);
@@ -565,15 +668,16 @@ $app.addEventListener('change', (e) => {
   const t = e.target;
   if (t.dataset.set === 'rule') dispatch({ type: 'config', rule: t.value });
   else if (t.dataset.set === 'firstDealer') dispatch({ type: 'config', firstDealer: +t.value });
+  else if (t.dataset.set === 'vision') { prefs.visionModel = t.value; savePrefs(); render(); }
   else if (t.dataset.opt) {
-    const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Number(t.value) : t.value;
+    const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Math.max(0, Number(t.value) || 0) : t.value;
     dispatch({ type: 'config', settings: { [t.dataset.opt]: v } });
-  } else if (t.dataset.extra) U.draft.extras[t.dataset.extra] = t.checked;
-  else if (t.dataset.name != null) dispatch({ type: 'name', seat: +t.dataset.name, name: t.value });
-  else if (t.dataset.seatname != null) dispatch({ type: 'name', seat: +t.dataset.seatname, name: t.value });
-  else if (t.dataset.myname != null) {
-    const me = mySeat();
-    if (me >= 0) dispatch({ type: 'name', seat: me, name: t.value });
+  } else if (t.dataset.extra) U.draft.extras[t.dataset.extra] = t.type === 'checkbox' ? t.checked : Math.max(0, Number(t.value) || 0);
+  else if (t.dataset.name != null || t.dataset.seatname != null || t.dataset.myname != null) {
+    const seat = t.dataset.myname != null ? mySeat() : +(t.dataset.name ?? t.dataset.seatname);
+    if (seat < 0) return;
+    if (G.nameTaken(S, t.value, seat)) { toast(`Nama "${t.value.trim()}" sudah dipakai kursi lain. Pakai nama lain.`); render(); return; }
+    dispatch({ type: 'name', seat, name: t.value });
   }
 });
 
@@ -586,6 +690,13 @@ document.getElementById('btn-settings').addEventListener('click', () => {
   U.screen = 'setup'; go();
 });
 document.getElementById('brand-tile').innerHTML = tileHTML(33, 'mini');
+
+document.getElementById('photo-input').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; onPhoto(f); });
+visionInfo().then((v) => {
+  U.vision = v;
+  if (!v.claude && prefs.visionModel !== 'free') { prefs.visionModel = 'free'; savePrefs(); }
+  if (U.mode) render();
+}).catch(() => {});
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 

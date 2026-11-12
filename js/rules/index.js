@@ -1,10 +1,9 @@
 import * as classical from './classical.js';
 import * as hongkong from './hongkong.js';
+import * as riichi from './riichi.js';
+import * as mcr from './mcr.js';
 
-export const RULES = { classical, hongkong };
+export const RULES = { classical, hongkong, riichi, mcr };
 
 /** Aturan yang tampil di pilihan tapi belum jadi. */
-export const COMING = [
-  { id: 'riichi', name: 'Riichi Jepang (menyusul)' },
-  { id: 'mcr', name: 'Chinese Official / MCR (menyusul)' },
-];
+export const COMING = [];

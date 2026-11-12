@@ -58,27 +58,55 @@ export function computeResult(s) {
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const isSeat = (p) => Number.isInteger(p) && p >= 0 && p < 4;
+const sameName = (a, b) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+/** Nama sudah dipakai kursi lain? (nama kosong boleh dobel) */
+export const nameTaken = (s, name, seat) => !!String(name || '').trim() && P4.some((p) => p !== seat && sameName(s.names[p], name));
+
+/** Lengkapi state lama (misal ruang dibuat sebelum ada aturan baru). */
+export function normalize(s) {
+  if (!s || !s.settings) return s;
+  for (const id in RULES) s.settings[id] = { ...RULES[id].defaults, ...(s.settings[id] || {}) };
+  if (!RULES[s.rule]) s.rule = 'classical';
+  return s;
+}
 
 export function reduce(state, op) {
-  const s = clone(state);
+  const s = normalize(clone(state));
   switch (op.type) {
     case 'config': {
-      if (Array.isArray(op.names)) s.names = op.names.slice(0, 4).map((n) => String(n || '').slice(0, 20));
+      if (Array.isArray(op.names)) {
+        const nn = op.names.slice(0, 4).map((n) => String(n || '').slice(0, 20));
+        if (!nn.some((n, i) => nn.some((m, j) => j > i && sameName(n, m)))) s.names = nn;
+      }
       if (op.rule && RULES[op.rule]) s.rule = op.rule;
       if (op.settings && RULES[op.ruleId || s.rule]) Object.assign(s.settings[op.ruleId || s.rule], op.settings);
       if (isSeat(op.firstDealer) && !s.game) s.firstDealer = op.firstDealer;
       return s;
     }
     case 'name': {
-      if (isSeat(op.seat)) s.names[op.seat] = String(op.name || '').slice(0, 20);
+      if (!isSeat(op.seat)) return s;
+      const nm = String(op.name || '').slice(0, 20);
+      if (nameTaken(s, nm, op.seat)) return s; // nama sudah dipakai kursi lain
+      s.names[op.seat] = nm;
       return s;
     }
     case 'claim': {
       if (!isSeat(op.seat) || !op.clientId) return s;
       if (s.seats[op.seat] && s.seats[op.seat] !== op.clientId) return s; // sudah diduduki orang lain
-      s.seats = s.seats.map((c) => (c === op.clientId ? null : c));
+      const nm = String(op.name || '').trim().slice(0, 20);
+      const old = s.seats.indexOf(op.clientId);
+      // Nama yang sama sudah dipakai pemain lain yang pegang HP -> tolak.
+      if (nm && P4.some((p) => p !== op.seat && p !== old && s.seats[p] && sameName(s.names[p], nm))) return s;
+      if (old >= 0 && old !== op.seat) {
+        s.seats[old] = null;
+        if (!s.game) s.names[old] = ''; // pindah kursi: kursi lama dikosongkan, jangan tinggal nama kita
+      }
       s.seats[op.seat] = op.clientId;
-      if (op.name) s.names[op.seat] = String(op.name).slice(0, 20);
+      if (nm) {
+        // Nama kita yang tadinya diketik orang di kursi kosong lain -> hapus supaya tidak dobel.
+        for (const p of P4) if (p !== op.seat && !s.seats[p] && sameName(s.names[p], nm)) s.names[p] = '';
+        s.names[op.seat] = nm;
+      }
       return s;
     }
     case 'release': {
@@ -94,10 +122,12 @@ export function reduce(state, op) {
       if (!s.game) return s;
       const winner = op.winner === 'draw' ? 'draw' : isSeat(op.winner) ? op.winner : null;
       if (winner == null) return s;
+      const discarder = winner !== 'draw' && !op.selfDrawn && isSeat(op.discarder) && op.discarder !== winner ? op.discarder : null;
+      if (winner !== 'draw' && !op.selfDrawn && discarder == null) return s; // dari buangan wajib ada pembuang (bukan pemenang)
       s.cur = {
         winner,
         selfDrawn: winner === 'draw' ? false : !!op.selfDrawn,
-        discarder: winner !== 'draw' && !op.selfDrawn && isSeat(op.discarder) ? op.discarder : null,
+        discarder,
         extras: op.extras || {},
         // Ubah info pemenang tanpa menghapus ubin yang sudah diisi.
         hands: s.cur ? s.cur.hands.map((h) => ({ ...h, submitted: false })) : P4.map(emptyHand),

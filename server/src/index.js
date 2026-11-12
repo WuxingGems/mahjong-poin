@@ -3,6 +3,7 @@
 // Logika permainan (reduce) SAMA PERSIS dengan yang dipakai di HP: ../../js/game.js
 import { DurableObject } from 'cloudflare:workers';
 import { initialState, reduce } from '../../js/game.js';
+import { readTiles } from './vision.js';
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // tanpa I, L, O, 0, 1 supaya tidak tertukar
 const ROOM_TTL_MS = 7 * 24 * 3600 * 1000; // ruang dihapus 7 hari setelah aktivitas terakhir
@@ -44,6 +45,22 @@ export default {
     if (ws) {
       if (req.headers.get('Upgrade') !== 'websocket') return json(req, { error: 'Perlu WebSocket' }, 426);
       return env.ROOMS.get(env.ROOMS.idFromName(ws[1])).fetch(req);
+    }
+
+    if (url.pathname === '/api/vision' && req.method === 'GET') {
+      return json(req, { free: !!env.AI, claude: !!env.ANTHROPIC_API_KEY });
+    }
+    if (url.pathname === '/api/read-tiles' && req.method === 'POST') {
+      // Hanya dari app kita sendiri (bukan pengaman sempurna, tapi menahan pemakaian iseng).
+      if (!ALLOWED_ORIGINS.includes(req.headers.get('Origin'))) return json(req, { error: 'Tidak diizinkan' }, 403);
+      try {
+        const body = await req.json();
+        return json(req, await readTiles(env, body));
+      } catch (e) {
+        console.error('read-tiles', e?.status, e?.message);
+        const msg = e?.status === 429 ? 'Pembaca foto sedang sibuk / kuota habis. Coba lagi sebentar.' : (e?.message && !e?.status ? e.message : 'Gagal membaca foto. Coba lagi.');
+        return json(req, { error: msg }, 500);
+      }
     }
 
     const check = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]{4})$/);

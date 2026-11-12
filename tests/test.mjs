@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import * as classical from '../js/rules/classical.js';
 import * as hongkong from '../js/rules/hongkong.js';
+import * as riichi from '../js/rules/riichi.js';
+import * as mcr from '../js/rules/mcr.js';
 import * as G from '../js/game.js';
 
 // "123m456p77z" -> indeks ubin. m=Karakter p=Bulat s=Bambu z=1..7 (Timur,Selatan,Barat,Utara,Putih,Hijau,Merah)
@@ -116,6 +118,58 @@ test('Kursi: tidak bisa merebut kursi orang lain', () => {
   s = G.reduce(s, { type: 'claim', seat: 2, clientId: 'b', name: 'Eva' });
   s = G.reduce(s, { type: 'claim', seat: 1, clientId: 'a' });
   assert.deepEqual(s.seats, [null, 'a', 'b', null]);
+});
+
+test('Nama: pindah kursi tidak meninggalkan nama, nama dobel ditolak', () => {
+  let s = G.initialState();
+  s = G.reduce(s, { type: 'claim', seat: 0, clientId: 'a', name: 'calvin' });
+  s = G.reduce(s, { type: 'claim', seat: 1, clientId: 'a', name: 'calvin' });
+  assert.deepEqual(s.names, ['', 'calvin', '', '']);
+  assert.deepEqual(s.seats, [null, 'a', null, null]);
+  const t = G.reduce(s, { type: 'claim', seat: 2, clientId: 'b', name: 'Calvin' });
+  assert.equal(t.seats[2], null); // nama sama dengan pemain lain -> ditolak
+  assert.equal(G.reduce(s, { type: 'name', seat: 3, name: 'CALVIN ' }).names[3], '');
+  // nama yang tadinya diketik di kursi kosong lain, lalu orangnya duduk di kursi lain -> tidak dobel
+  let u = G.reduce(s, { type: 'name', seat: 3, name: 'Eva' });
+  u = G.reduce(u, { type: 'claim', seat: 2, clientId: 'b', name: 'eva' });
+  assert.deepEqual(u.names, ['', 'calvin', 'eva', '']);
+});
+
+test('Catat pemenang: pembuang tidak boleh sama dengan pemenang', () => {
+  let s = G.reduce(G.initialState({ names: ['A', 'B', 'C', 'D'] }), { type: 'start' });
+  assert.equal(G.reduce(s, { type: 'declare', winner: 1, selfDrawn: false, discarder: 1 }).cur, null);
+  assert.equal(G.reduce(s, { type: 'declare', winner: 1, selfDrawn: false, discarder: 2 }).cur.discarder, 2);
+});
+
+test('Riichi: riichi + pinfu + tanyao, ron non-dealer = 3 han 30 fu = 3.900; +2 dora = mangan 8.000', () => {
+  const p = { ...base(riichi), seat: 2, tiles: parse('234567m234p55p678s'), isWinner: true, win: { selfDrawn: false, extras: { riichi: true } } };
+  const r = riichi.scoreHand(p);
+  assert.equal(r.han, 3); assert.equal(r.fu, 30); assert.equal(r.total, 3900);
+  const m = riichi.scoreHand({ ...p, win: { selfDrawn: false, extras: { riichi: true, dora: 2 } } });
+  assert.equal(m.total, 8000);
+  const st = riichi.settle({ results: [null, null, m, null], winner: 2, discarder: 0, selfDrawn: false, dealer: 0 });
+  assert.deepEqual(st.net, [-8000, 0, 8000, 0]);
+});
+
+test('Riichi: tangan terbuka tanpa yaku diberi peringatan', () => {
+  const r = riichi.scoreHand({ ...base(riichi), seat: 2, tiles: parse('123m456p789s234s99m'), isWinner: true, open: { 'chow-0': true } });
+  assert.equal(r.ok, true);
+  assert.ok(r.warning);
+  assert.equal(r.total, 0);
+});
+
+test('MCR: lurus 1-9 + semua chow + tertutup + tanpa kehormatan = 21 fan; pembuang bayar 29, lainnya 8', () => {
+  const r = mcr.scoreHand({ ...base(mcr), seat: 2, tiles: parse('123456789m234p55s'), isWinner: true });
+  assert.equal(r.total, 21);
+  const st = mcr.settle({ results: [null, null, r, null], winner: 2, discarder: 0, selfDrawn: false });
+  assert.deepEqual(st.net, [-29, -8, 45, -8]);
+});
+
+test('MCR: tiga naga besar tidak dobel dengan pung naga', () => {
+  const r = mcr.scoreHand({ ...base(mcr), seat: 2, tiles: parse('555666777z123m99p'), isWinner: true, win: { selfDrawn: true, extras: {} } });
+  const labels = r.items.map((x) => x.label).join('|');
+  assert.ok(labels.includes('大三元'));
+  assert.ok(!labels.includes('箭刻'));
 });
 
 console.log(`\nSemua ${n} tes lulus.`);

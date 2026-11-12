@@ -3,26 +3,27 @@
 // Dealer (Timur) bayar/terima dobel.
 import { countsOf } from '../tiles.js';
 import { decomposeWinning, partialSets, isThirteenOrphans } from '../decompose.js';
-import { features, groupLabel, ownFlowers, netOf, windTile, tileName, flowerName, isDragon, isTermOrHonor } from './common.js';
+import { features, groupLabel, ownFlowers, netOf, windTile, tileName, flowerName, isDragon, isTermOrHonor, loserCountWarning } from './common.js';
 
 export const id = 'classical';
-export const name = 'Klasik — semua pemain hitung, bayar selisih';
+export const name = 'Klasik (semua pemain hitung)';
+export const desc = 'Keempat pemain menghitung poin tangannya (pung, kong, bunga, pasang naga, dll). Pemenang dibayar 3 pemain lain sebesar skornya. Sesama yang kalah saling bayar selisih skor. Gaya meja keluarga yang paling umum.';
 export const needsAllHands = true;
 export const unit = 'poin';
 
 export const defaults = { limit: 1000, eastDouble: true, roundUp: true };
 
 export const settingsSpec = [
-  { key: 'limit', label: 'Batas poin satu tangan (limit)', type: 'number' },
-  { key: 'eastDouble', label: 'Dealer (Timur) bayar & terima dobel', type: 'bool' },
-  { key: 'roundUp', label: 'Bulatkan skor ke atas ke puluhan', type: 'bool' },
+  { key: 'limit', label: 'Batas poin satu tangan (limit)', type: 'number', info: 'Skor satu tangan tidak bisa lebih dari angka ini. Tangan istimewa (tiga naga besar, empat angin besar, semua kehormatan, 13 yatim) langsung dapat skor limit.' },
+  { key: 'eastDouble', label: 'Dealer (Timur) bayar & terima dobel', type: 'bool', info: 'Kalau dealer menang, tiap pemain bayar 2× ke dealer. Kalau dealer kalah, dealer bayar 2×. Selisih antara dealer dan pemain lain juga 2×.' },
+  { key: 'roundUp', label: 'Bulatkan skor ke atas ke puluhan', type: 'bool', info: 'Contoh: skor 52 jadi 60, skor 48 jadi 50.' },
 ];
 
 export const winExtras = [
-  { key: 'singleWait', label: 'Tunggu 1 ubin saja (+2)' },
-  { key: 'lastTile', label: 'Ubin terakhir tembok (×2)' },
-  { key: 'replacement', label: 'Dari ubin pengganti kong (×2)' },
-  { key: 'robKong', label: 'Merampok kong (×2)' },
+  { key: 'singleWait', label: 'Tunggu 1 ubin saja (+2)', info: 'Sebelum menang kamu cuma menunggu SATU macam ubin. Contoh: punya 4 dan 6 bambu, tinggal butuh 5 bambu. Atau semua set sudah jadi, tinggal menunggu pasangan untuk 1 ubin.' },
+  { key: 'lastTile', label: 'Ubin terakhir tembok (×2)', info: 'Menang pakai ubin paling terakhir di tembok (atau ubin buangan paling terakhir sebelum permainan seri). Skor dikali 2.' },
+  { key: 'replacement', label: 'Dari ubin pengganti kong (×2)', info: 'Setelah membuat kong, kamu ambil 1 ubin pengganti dari ujung tembok, dan ubin itu yang membuatmu menang. Skor dikali 2.' },
+  { key: 'robKong', label: 'Merampok kong (×2)', info: 'Pemain lain menambah 1 ubin ke pung terbukanya supaya jadi kong, padahal ubin itu yang kamu tunggu. Kamu boleh "merampok" ubin itu untuk menang. Skor dikali 2.' },
 ];
 
 function meldPoints(g, open) {
@@ -125,7 +126,7 @@ export function scoreHand(p) {
     return { ok: true, ...best };
   }
   const { groups, pairs } = partialSets(c);
-  return { ok: true, ...evaluate(groups, pairs, p) };
+  return { ok: true, ...evaluate(groups, pairs, p), warning: loserCountWarning(c) };
 }
 
 /** results[i].total = skor tiap pemain. */

@@ -12,6 +12,22 @@ export async function createRoom(opts) {
   return (await res.json()).code;
 }
 
+export async function visionInfo() {
+  const res = await fetch(`${SERVER}/api/vision`);
+  return res.json();
+}
+
+/** Kirim foto (data URL JPEG) ke server, balikannya { tiles: ['1m','E',...], model }. */
+export async function readTiles(image, model) {
+  let res;
+  try {
+    res = await fetch(`${SERVER}/api/read-tiles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image, model }) });
+  } catch { throw new Error('Gagal mengirim foto. Cek internet lalu coba lagi.'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Gagal membaca foto.');
+  return data;
+}
+
 export async function roomExists(code) {
   const res = await fetch(`${SERVER}/api/rooms/${code}`);
   return res.ok;

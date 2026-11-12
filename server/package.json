@@ -1,0 +1,17 @@
+{
+  "name": "mahjong-poin-server",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "deploy": "npx wrangler@4 deploy",
+    "dev": "npx wrangler@4 dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0"
+  },
+  "private": true
+}

@@ -5,29 +5,30 @@ import { decomposeWinning, isSevenPairs, isThirteenOrphans } from '../decompose.
 import { features, groupLabel, ownFlowers, netOf, windTile, flowerName } from './common.js';
 
 export const id = 'hongkong';
-export const name = 'Hong Kong — faan, hanya pemenang';
+export const name = 'Hong Kong (faan)';
+export const desc = 'Hanya tangan pemenang yang dihitung, dalam satuan faan (番). Makin langka susunannya, makin banyak faan. Poin = 2 pangkat faan (3 faan = 8 poin). Yang kalah tidak perlu mengisi ubin.';
 export const needsAllHands = false;
 export const unit = 'faan';
 
 export const defaults = { minFaan: 3, limitFaan: 10, payMode: 'half', flowersOn: true, sevenPairs: true };
 
 export const settingsSpec = [
-  { key: 'minFaan', label: 'Faan minimum untuk menang', type: 'number' },
-  { key: 'limitFaan', label: 'Batas faan (limit)', type: 'number' },
+  { key: 'minFaan', label: 'Faan minimum untuk menang', type: 'number', info: 'Tangan dengan faan kurang dari ini tidak boleh dinyatakan menang. Umumnya 3 faan, ada juga meja yang pakai 1.' },
+  { key: 'limitFaan', label: 'Batas faan (limit)', type: 'number', info: 'Faan lebih dari ini dihitung sama dengan batas. Tangan istimewa (13 yatim, semua kehormatan, dll.) langsung dapat faan batas.' },
   {
     key: 'payMode', label: 'Kalau menang dari buangan', type: 'select', options: [
       ['half', 'Pembuang bayar penuh, 2 lainnya bayar setengah'],
       ['full', 'Pembuang tanggung semua (bayar 2×)'],
-    ],
+    ], info: 'Setengah (半銃): pembuang bayar penuh, 2 pemain lain bayar setengah. Tanggung semua (全銃): hanya pembuang yang bayar, sebesar 2×. Kalau menang tarik sendiri, 3 pemain bayar penuh.',
   },
-  { key: 'flowersOn', label: 'Main pakai bunga', type: 'bool' },
-  { key: 'sevenPairs', label: 'Tujuh pasang boleh (4 faan)', type: 'bool' },
+  { key: 'flowersOn', label: 'Main pakai bunga', type: 'bool', info: 'Bunga milik kursi sendiri +1 faan. Tidak punya bunga sama sekali juga +1 faan.' },
+  { key: 'sevenPairs', label: 'Tujuh pasang boleh (4 faan)', type: 'bool', info: 'Tangan berisi 7 pasang (tanpa set) boleh dipakai menang, nilainya 4 faan.' },
 ];
 
 export const winExtras = [
-  { key: 'lastTile', label: 'Ubin terakhir tembok (+1)' },
-  { key: 'replacement', label: 'Dari ubin pengganti kong (+1)' },
-  { key: 'robKong', label: 'Merampok kong (+1)' },
+  { key: 'lastTile', label: 'Ubin terakhir tembok (+1)', info: 'Menang pakai ubin paling terakhir di tembok (atau buangan paling terakhir sebelum seri).' },
+  { key: 'replacement', label: 'Dari ubin pengganti kong (+1)', info: 'Setelah membuat kong, kamu ambil 1 ubin pengganti dari ujung tembok, dan ubin itu yang membuatmu menang.' },
+  { key: 'robKong', label: 'Merampok kong (+1)', info: 'Pemain lain menambah 1 ubin ke pung terbukanya jadi kong, padahal ubin itu yang kamu tunggu. Kamu ambil ubin itu untuk menang.' },
 ];
 
 function commonItems(p, concealed) {

@@ -8,5 +8,8 @@
     "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  // Pembaca foto gratis. Kunci Claude (opsional): npx wrangler@4 secret put ANTHROPIC_API_KEY
+  "ai": { "binding": "AI" },
+  "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true }
 }

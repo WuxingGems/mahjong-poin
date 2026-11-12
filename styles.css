@@ -248,3 +248,23 @@ small { font-size: .72em; color: var(--ink-dim); font-weight: 600; }
   opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; width: max-content; max-width: calc(100% - 32px);
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- penjelasan "?" & foto ---------- */
+.opt { display: flex; align-items: center; gap: 8px; }
+.opt > label { flex: 1; min-width: 0; }
+.info {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--gold-dim); background: rgba(0, 0, 0, .18); color: var(--gold);
+  font: 800 14px 'Manrope', sans-serif; display: grid; place-items: center;
+}
+.info.on { background: var(--gold); color: #2b1d10; }
+.tipbox {
+  margin: 0 0 8px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45;
+  background: rgba(255, 231, 180, .08); border-left: 3px solid var(--gold); color: var(--ink);
+}
+.tipbox[hidden] { display: none; }
+.ruledesc { font-size: 13px; line-height: 1.45; color: var(--ink-dim); margin: 8px 0 4px; }
+.small { font-size: 12px; }
+.center { text-align: center; }
+.card.photo img { width: 100%; border-radius: 10px; display: block; max-height: 260px; object-fit: contain; background: #0006; }
+.card.photo .linkbtn { margin: 4px 0 0; }

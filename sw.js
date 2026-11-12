@@ -1,9 +1,10 @@
 // Simpan file app supaya bisa dibuka tanpa internet. Naikkan VERSION tiap ada perubahan file.
-const VERSION = 'mahjong-poin-v3';
+const VERSION = 'mahjong-poin-v4';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icon.svg',
   'js/app.js', 'js/tiles.js', 'js/decompose.js', 'js/game.js', 'js/net.js',
   'js/rules/index.js', 'js/rules/common.js', 'js/rules/classical.js', 'js/rules/hongkong.js',
+  'js/rules/riichi.js', 'js/rules/mcr.js',
 ];
 
 self.addEventListener('install', (e) => {

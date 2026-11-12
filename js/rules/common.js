@@ -35,7 +35,15 @@ export function features(groups, tiles, open) {
   };
 }
 
-export const ownFlowers = (flowers, seat) => flowers.filter((f) => f === seat || f === seat + 4);
+/** Peringatan jumlah ubin tangan yang kalah: harus 13 (tiap kong dihitung 3). */
+export function loserCountWarning(counts) {
+  let n = 0;
+  for (const x of counts) n += x === 4 ? 3 : x;
+  if (!n || n === 13) return null;
+  return `Ada ${n} ubin — tangan yang kalah biasanya 13 ubin (kong dihitung 3). Cek lagi ya.`;
+}
+
+export const ownFlowers =(flowers, seat) => flowers.filter((f) => f === seat || f === seat + 4);
 export { windTile, tileName, flowerName, isDragon, isWind, isTermOrHonor };
 
 /** Gabungkan transfer jadi saldo bersih per pemain. */
