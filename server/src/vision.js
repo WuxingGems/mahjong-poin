@@ -13,6 +13,7 @@ const CODES = [
 ];
 
 const PROMPT = `This photo shows one player's mahjong tiles laid out in a row (usually 13 or 14 tiles, more if they have kongs, and possibly some flower tiles).
+The row may be horizontal OR vertical (photo taken in portrait), and tiles may appear rotated or upside down — read each tile face in whatever orientation it has. For a vertical row, read from top to bottom.
 Identify EVERY tile from left to right. Use these codes:
 - 1m..9m = Characters / 萬 (a Chinese numeral 一二三四五六七八九 above a red 萬 or 万)
 - 1p..9p = Dots / Circles / 筒 (count the circles)
