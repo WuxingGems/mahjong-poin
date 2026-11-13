@@ -23,43 +23,50 @@ Identify EVERY tile from left to right. Use these codes:
 - Rd = red dragon 中
 - F1..F4 = flowers plum 梅, orchid 蘭, chrysanthemum 菊, bamboo 竹 (often numbered 1-4)
 - F5..F8 = seasons spring 春, summer 夏, autumn 秋, winter 冬 (often numbered 1-4)
-Count carefully: identical tiles side by side must each be listed. Ignore tiles that clearly belong to other players or the wall.`;
+Count carefully: identical tiles side by side must each be listed. Ignore tiles that clearly belong to other players or the wall.
+
+The player may leave visible GAPS between groups of tiles (e.g. exposed sets on the left, the hand in the middle, and the single winning tile apart on the far right).
+Report the tiles as "segments": one array per group separated by a clear EMPTY SPACE on the table (at least half a tile wide), in left-to-right order.
+IMPORTANT: do NOT split tiles into sets/melds yourself. Tiles that touch each other or sit edge to edge belong to the SAME segment, even if they look like different sets. Most photos have only 1 to 3 segments. If there are no clear empty spaces, return a single segment with all tiles.`;
 
 const SCHEMA = {
   type: 'object',
   properties: {
-    tiles: { type: 'array', items: { type: 'string', enum: CODES } },
+    segments: { type: 'array', items: { type: 'array', items: { type: 'string', enum: CODES } } },
     notes: { type: 'string' },
   },
-  required: ['tiles', 'notes'],
+  required: ['segments', 'notes'],
   additionalProperties: false,
 };
 
+/** Hasil model -> segments (array of array kode). */
 function parseLoose(text) {
   const m = String(text || '').match(/\{[\s\S]*\}/);
   if (m) {
     try {
       const o = JSON.parse(m[0]);
-      if (Array.isArray(o.tiles)) return o.tiles.map(String);
+      if (Array.isArray(o.segments)) return o.segments.filter(Array.isArray).map((s) => s.map(String));
+      if (Array.isArray(o.tiles)) return [o.tiles.map(String)];
     } catch { /* lanjut cara kasar */ }
   }
   // cadangan: ambil semua kode yang dikenali dari teks
   const set = new Set(CODES.map((c) => c.toLowerCase()));
-  return (String(text || '').match(/\b([1-9][mps]|E|S|W|N|Wh|Gr|Rd|F[1-8])\b/gi) || []).filter((c) => set.has(c.toLowerCase()));
+  return [(String(text || '').match(/\b([1-9][mps]|E|S|W|N|Wh|Gr|Rd|F[1-8])\b/gi) || []).filter((c) => set.has(c.toLowerCase()))];
 }
+const result = (segments, model) => ({ segments, tiles: segments.flat(), model });
 
 async function readFree(env, dataUrl, freeModel) {
   if (!env.AI) throw new Error('Pembaca gratis belum aktif di server.');
   const out = await env.AI.run(FREE_OPTIONS.includes(freeModel) ? freeModel : FREE_MODEL, {
     messages: [
-      { role: 'system', content: 'You read mahjong tiles from photos and answer ONLY with JSON like {"tiles":["1m","2m"],"notes":""}.' },
-      { role: 'user', content: [{ type: 'text', text: `${PROMPT}\n\nAnswer ONLY with JSON: {"tiles":[...codes...],"notes":"..."}` }, { type: 'image_url', image_url: { url: dataUrl } }] },
+      { role: 'system', content: 'You read mahjong tiles from photos and answer ONLY with JSON like {"segments":[["1m","1m","1m"],["2p","3p"]],"notes":""}.' },
+      { role: 'user', content: [{ type: 'text', text: `${PROMPT}\n\nAnswer ONLY with JSON: {"segments":[[...codes...],...],"notes":"..."}` }, { type: 'image_url', image_url: { url: dataUrl } }] },
     ],
     max_tokens: 600,
     temperature: 0.1,
   });
   const text = typeof out?.response === 'string' ? out.response : JSON.stringify(out?.response ?? out);
-  return { tiles: parseLoose(text), model: 'free' };
+  return result(parseLoose(text), 'free');
 }
 
 async function readClaude(env, key, dataUrl) {
@@ -80,7 +87,7 @@ async function readClaude(env, key, dataUrl) {
     }],
   });
   const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
-  return { tiles: parseLoose(text), model: key };
+  return result(parseLoose(text), key);
 }
 
 export async function readTiles(env, { image, model, freeModel }) {

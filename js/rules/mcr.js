@@ -3,7 +3,7 @@
 // Pola "knitted" (全不靠/组合龙) belum dihitung otomatis.
 import { countsOf, suitOf, numOf, isHonor, isTerminal } from '../tiles.js';
 import { decomposeWinning, isSevenPairs, isThirteenOrphans } from '../decompose.js';
-import { groupLabel, netOf, windTile, flowerName, isDragon, isWind, isTermOrHonor } from './common.js';
+import { groupLabel, netOf, windTile, flowerName, isDragon, isWind, isTermOrHonor, waitVariants } from './common.js';
 
 export const id = 'mcr';
 export const name = 'Chinese Official / MCR';
@@ -19,9 +19,6 @@ export const settingsSpec = [
 ];
 
 export const winExtras = [
-  { key: 'edgeWait', label: 'Tunggu tepi (+1)', info: 'Menang dengan 3 dari 1-2, atau 7 dari 8-9.' },
-  { key: 'closedWait', label: 'Tunggu tengah (+1)', info: 'Menang dengan ubin di tengah chow, misal 5 untuk 4_6.' },
-  { key: 'singleWait', label: 'Tunggu pasangan (+1)', info: 'Semua set sudah jadi, menang dengan ubin yang melengkapi pasangan.' },
   { key: 'lastTile', label: 'Ubin terakhir tembok / buangan terakhir (+8)', info: 'Menang pakai ubin paling terakhir di tembok (妙手回春) atau buangan paling terakhir (海底撈月).' },
   { key: 'replacement', label: 'Dari ubin pengganti kong (+8)', info: 'Menang pakai ubin pengganti setelah membuat kong (槓上開花).' },
   { key: 'robKong', label: 'Merampok kong (+8)', info: 'Menang pakai ubin yang dipakai pemain lain untuk menambah pung jadi kong (搶槓和).' },
@@ -132,7 +129,7 @@ function tileFans(tiles, add) {
 function winFans(p, add) {
   const ex = p.win.extras || {};
   if (p.win.selfDrawn) add('selfDrawn');
-  if (ex.edgeWait) add('edgeWait'); else if (ex.closedWait) add('closedWait'); else if (ex.singleWait) add('singleWait');
+  if (ex.oneTile) { if (ex.waitKind === 'edge') add('edgeWait'); else if (ex.waitKind === 'closed') add('closedWait'); else if (ex.waitKind === 'single') add('singleWait'); }
   if (ex.lastTile) add(p.win.selfDrawn ? 'lastTileDraw' : 'lastTileClaim');
   if (ex.replacement) add('replacement');
   if (ex.robKong) add('robKong');
@@ -228,7 +225,8 @@ function shapeFans(groups, p, add) {
   else if (kongs.length === 2) add(ck === 2 ? 'twoConcealedKongs' : ck === 1 ? 'mixedKongs' : 'twoMeldedKongs');
   else if (kongs.length === 1) add(ck ? 'concealedKong' : 'meldedKong');
   void ok;
-  const cp = pungs.filter((g) => !isOpen(g)).length;
+  const ronPung = (win.extras || {}).ronPung;
+  const cp = pungs.filter((g) => !isOpen(g) && g.key !== ronPung).length;
   if (cp === 4) add('fourConcealedPungs'); else if (cp === 3) add('threeConcealedPungs'); else if (cp === 2) add('twoConcealedPungs');
   if (melds.length === 4 && !chows.length) add('allPungs');
   if (chows.length === 4 && pair && !isHonor(pair.tile)) add('allChows');
@@ -311,9 +309,11 @@ export function scoreHand(p) {
     cands.push(tally(found, [], p));
   }
   for (const groups of decomposeWinning(c)) {
-    const { found, add } = collector();
-    tileFans(p.tiles, add); shapeFans(groups, p, add); winFans(p, add);
-    cands.push(tally(found, groups, p));
+    for (const v of waitVariants(p, groups)) {
+      const { found, add } = collector();
+      tileFans(v.tiles, add); shapeFans(groups, v, add); winFans(v, add);
+      cands.push(tally(found, groups, v));
+    }
   }
   if (isSevenPairs(c)) {
     const { found, add } = collector();

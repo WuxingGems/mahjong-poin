@@ -268,3 +268,13 @@ small { font-size: .72em; color: var(--ink-dim); font-weight: 600; }
 .center { text-align: center; }
 .card.photo img { width: 100%; border-radius: 10px; display: block; max-height: 260px; object-fit: contain; background: #0006; }
 .card.photo .linkbtn { margin: 4px 0 0; }
+
+/* ---------- ubin menang & cara foto ---------- */
+.howto { margin: 10px 0 4px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45; background: rgba(0, 0, 0, .2); border: 1px dashed var(--gold-dim); }
+.howto b { color: var(--gold); }
+.rack .wingap { display: inline-block; width: 14px; }
+.rack .tile.win { box-shadow: 0 0 0 2px var(--gold), 0 3px 0 var(--tile-back); }
+.rack.marking .tile { animation: wob 1s ease-in-out infinite; }
+@keyframes wob { 50% { transform: translateY(-3px); } }
+.btn.chipwide { flex: 1; justify-content: flex-start; text-align: left; }
+.warn.small { font-size: 12px; }

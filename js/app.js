@@ -36,7 +36,7 @@ savePrefs();
 let solo = loadSolo();
 let S = null; // state permainan yang sedang tampil
 let conn = null;
-const U = { mode: null, screen: null, draft: null, editSeat: null, handSeat: null, status: '', code: null, tips: new Set(), photos: {}, reading: false, vision: null };
+const U = { markWin: false, mode: null, screen: null, draft: null, editSeat: null, handSeat: null, status: '', code: null, tips: new Set(), photos: {}, reading: false, vision: null };
 const MODELS = [
   ['free', 'Gratis (Cloudflare AI)'],
   ['haiku', 'Claude Haiku 5.5 — cepat & murah'],
@@ -198,6 +198,28 @@ function scoreHTML(res, h) {
       <tr class="total"><td>Total</td><td class="n">${res.summary}</td></tr></table>
     ${res.warning ? `<p class="warn">${res.warning}</p>` : ''}`;
 }
+const ICON_SPEAK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
+/** Apakah skor berubah tergantung ubin menang yang mana? Kalau tidak, tidak usah ditanya. */
+function winTileMatters(seat) {
+  const h = S.cur.hands[seat];
+  const vals = new Set();
+  for (const t of new Set(h.tiles)) {
+    const s2 = G.reduce(S, { type: 'hand', seat, winTile: t });
+    const r = G.scoreSeat(s2, seat);
+    if (r.ok) vals.add(r.summary);
+    if (vals.size > 1) return true;
+  }
+  return false;
+}
+/** Rak: ubin tangan, lalu ubin menang terpisah di kanan. */
+function rackHTML(h, isW) {
+  const hasWin = isW && h.winTile != null && h.tiles.includes(h.winTile);
+  const rest = h.tiles.slice();
+  if (hasWin) rest.splice(rest.indexOf(h.winTile), 1);
+  const body = rest.map((t) => tileHTML(t)).join('') + h.flowers.map((f) => flowerHTML(f)).join('')
+    + (hasWin ? `<span class="wingap"></span>${tileHTML(h.winTile, 'win')}` : '');
+  return `<div class="rack ${U.markWin ? 'marking' : ''}" data-zone="hand">${body || '<span class="empty">Rak masih kosong</span>'}</div>`;
+}
 const photoKey = () => `${S?.game?.handNo}-${U.handSeat}`;
 const modelName = () => (MODELS.find((m) => m[0] === prefs.visionModel) || MODELS[0])[1];
 
@@ -215,6 +237,39 @@ function codesToTiles(codes) {
     if (t != null && tiles.filter((x) => x === t).length < 4) tiles.push(t);
   }
   return { tiles, flowers };
+}
+
+/**
+ * Foto dengan celah: [set terbuka] ··· [ubin tangan] ··· [ubin menang].
+ * Kelompok 3-4 ubin yang membentuk set (selain kelompok terbesar) = set terbuka.
+ * Pemenang: kelompok 1 ubin paling kanan = ubin menang.
+ */
+function interpretSegments(segments, isWinner, trusted) {
+  let segs = segments.map(codesToTiles).filter((x) => x.tiles.length || x.flowers.length);
+  // Pembaca gratis sering memecah sendiri jadi set-set. Pakai pengelompokan hanya kalau masuk akal.
+  const big = Math.max(0, ...segs.map((x) => x.tiles.length));
+  if (!trusted && !(segs.length <= 3 && big >= 7)) segs = [{ tiles: segs.flatMap((x) => x.tiles), flowers: segs.flatMap((x) => x.flowers) }];
+  const flowers = [...new Set(segs.flatMap((s) => s.flowers))];
+  const withTiles = segs.filter((s) => s.tiles.length);
+  let winTile = null;
+  if (isWinner && withTiles.length >= 2 && withTiles[withTiles.length - 1].tiles.length === 1) winTile = withTiles[withTiles.length - 1].tiles[0];
+  let main = 0;
+  withTiles.forEach((s, i) => { if (s.tiles.length > withTiles[main].tiles.length) main = i; });
+  const open = {}, seen = {};
+  withTiles.forEach((s, i) => {
+    if (i === main || s.tiles.length < 3 || s.tiles.length > 4) return;
+    const t = [...s.tiles].sort((a, b) => a - b);
+    let type = null;
+    if (t.every((x) => x === t[0])) type = t.length === 4 ? 'kong' : 'pung';
+    else if (t.length === 3 && t[0] < 27 && t[1] === t[0] + 1 && t[2] === t[0] + 2 && Math.floor(t[0] / 9) === Math.floor(t[2] / 9)) type = 'chow';
+    if (!type) return;
+    const base = `${type}-${t[0]}`;
+    seen[base] = (seen[base] || 0) + 1;
+    open[seen[base] > 1 ? `${base}#${seen[base]}` : base] = true;
+  });
+  const tiles = [];
+  for (const s of withTiles) for (const t of s.tiles) if (tiles.filter((x) => x === t).length < 4) tiles.push(t);
+  return { tiles, flowers, open, winTile };
 }
 
 async function shrinkPhoto(file, max = 1600) {
@@ -237,12 +292,16 @@ async function onPhoto(file) {
     const dataUrl = await shrinkPhoto(file);
     U.photos[key] = dataUrl; render();
     const r = await readTiles(dataUrl, prefs.visionModel);
-    let { tiles, flowers } = codesToTiles(r.tiles);
+    const isW = seat === S.cur.winner;
+    let { tiles, flowers, open, winTile } = interpretSegments(r.segments || [r.tiles || []], isW, r.model !== 'free');
     if (G.settingsOf(S).flowersOn === false) flowers = [];
     if (!tiles.length && !flowers.length) toast('Tidak ada ubin yang terbaca. Coba foto lebih dekat & terang, atau ketuk ubin manual.');
     else {
-      dispatch({ type: 'hand', seat, tiles, flowers, open: {} });
-      toast(`Terbaca ${tiles.length} ubin${flowers.length ? ` + ${flowers.length} bunga` : ''}. Cocokkan dengan foto ya.`);
+      dispatch({ type: 'hand', seat, tiles, flowers, open, winTile });
+      const bits = [`${tiles.length} ubin`];
+      if (flowers.length) bits.push(`${flowers.length} bunga`);
+      if (Object.keys(open).length) bits.push(`${Object.keys(open).length} set terbuka`);
+      toast(`Terbaca ${bits.join(', ')}${isW && winTile != null ? ', ubin menang di kanan' : ''}. Cocokkan dengan foto.`);
     }
   } catch (err) {
     toast(err.message || 'Gagal membaca foto. Cek internet lalu coba lagi.');
@@ -363,7 +422,7 @@ function viewBoard() {
   </div>
   ${U.mode === 'online' && me < 0 ? `<div class="card"><h3>Kamu belum duduk</h3><p class="muted">Pilih kursimu supaya bisa mengisi ubin sendiri.</p>
     <div class="row">${P4.filter((p) => !S.seats[p]).map((p) => `<button class="btn small" data-act="claim" data-p="${p}">${esc(nameOf(p))}</button>`).join('') || '<span class="muted">Semua kursi sudah dipakai HP lain.</span>'}</div></div>` : ''}
-  <button class="btn primary big" data-act="new-hand">Tangan selesai — catat hasil</button>
+  <button class="btn primary big" data-act="new-hand">Hu! Tangan selesai — catat hasil</button>
   <p class="muted center" style="margin-top:10px">${esc(G.ruleOf(S).name)}</p>
   ${g.history.length ? `<div class="card"><h3>Riwayat</h3>${g.history.slice().reverse().map(histHTML).join('')}
     <div class="actions"><button class="btn small danger" data-act="undo">Batalkan tangan terakhir</button></div></div>` : ''}`;
@@ -386,8 +445,7 @@ function viewWho() {
       <button class="btn ${!c.selfDrawn ? 'on' : ''}" data-act="self" data-v="0">Dari buangan</button>
     </div>
     ${!c.selfDrawn ? `<h3>Siapa yang membuang?</h3><div class="row">${others.map((p) => `<button class="btn small ${c.discarder === p ? 'on' : ''}" data-act="discarder" data-p="${p}">${esc(nameOf(p))}</button>`).join('')}</div>` : ''}
-    <h3>Tambahan (centang kalau ada) · ketuk ? untuk penjelasan</h3>
-    ${G.ruleOf(S).winExtras.map((x) => fieldHTML({ ...x, type: x.type || 'bool' }, c.extras[x.key], 'data-extra')).join('')}
+    <p class="ruledesc">Lainnya (jenis tunggu, set terbuka) dibaca otomatis dari foto. Kejadian khusus ditanya di akhir.</p>
   </div>` : ''}
   <div class="actions"><button class="btn ghost" data-act="who-cancel">Batal</button><button class="btn primary" data-act="who-next" ${canNext ? '' : 'disabled'}>Lanjut →</button></div>`;
 }
@@ -429,13 +487,18 @@ function viewHand() {
   <h2 class="who">${windBadge(seat)}<span>${esc(nameOf(seat))}${online && seat === me ? ' <small>(kamu)</small>' : ''}</span>${isW ? seal('胡', 'Menang') : ''}</h2>
   <p class="muted">${winInfo()}</p>
   <button class="btn big" data-act="photo" ${U.reading ? 'disabled' : ''}>${ICON_CAM}${U.reading ? 'Membaca foto… (±10–30 detik)' : 'Foto tangan'}</button>
+  <div class="howto">${isW
+    ? '<b>Cara foto:</b> set yang sudah dibuka di kiri · ubin tangan di tengah · <b>ubin terakhir yang bikin menang taruh terpisah di paling kanan</b>.'
+    : '<b>Cara foto:</b> set yang sudah dibuka di kiri, agak berjarak · ubin tangan di tengah.'}</div>
   <p class="muted small center">Pembaca foto: ${esc(modelName())} · ganti di ⚙</p>
   ${U.photos[photoKey()] ? `<div class="card photo"><img src="${U.photos[photoKey()]}" alt="Foto tangan">
     <p class="muted small">Bandingkan dengan rak di bawah. Ubin salah? Ketuk untuk hapus, lalu ketuk yang benar di daftar.</p>
     <button class="linkbtn" data-act="clear-photo">Tutup foto</button></div>` : ''}
   <div class="card">
-    <h3>Di tangan · ${h.tiles.length} ubin${h.flowers.length ? ` + ${h.flowers.length} bunga` : ''} · ketuk untuk hapus</h3>
-    <div class="rack" data-zone="hand">${h.tiles.map((t) => tileHTML(t)).join('')}${h.flowers.map((f) => flowerHTML(f)).join('')}${h.tiles.length || h.flowers.length ? '' : '<span class="empty">Rak masih kosong</span>'}</div>
+    <h3>Di tangan · ${h.tiles.length} ubin${h.flowers.length ? ` + ${h.flowers.length} bunga` : ''} · ${U.markWin ? 'ketuk ubin yang bikin menang' : 'ketuk untuk hapus'}</h3>
+    ${rackHTML(h, isW)}
+    ${isW && h.tiles.length ? `<div class="actions"><button class="btn small ${U.markWin ? 'on' : ''}" data-act="mark-win">${U.markWin ? 'Batal tandai' : h.winTile != null && h.tiles.includes(h.winTile) ? 'Ganti ubin menang' : 'Tandai ubin menang'}</button></div>
+      ${(h.winTile == null || !h.tiles.includes(h.winTile)) && winTileMatters(seat) ? '<p class="warn small">Skornya tergantung ubin mana yang terakhir masuk. Ketuk "Tandai ubin menang", lalu ketuk ubinnya.</p>' : ''}` : ''}
     <h3>Ketuk ubin untuk menambah</h3>
     <div class="palette" data-zone="pal">${[...Array(34).keys()].map((i) => tileHTML(i, counts[i] >= 4 ? 'dim' : '')).join('')}</div>
     ${showFlowers ? `<div class="palette flowers" data-zone="pal">${[1, 2, 3, 4, 5, 6, 7, 8].map((f) => flowerHTML(f, h.flowers.includes(f) ? 'dim' : '')).join('')}</div>` : ''}
@@ -488,7 +551,36 @@ function viewResult() {
     ${P4.map((p) => `<tr><td>${esc(nameOf(p))}</td><td class="n ${cls(r.net[p])}">${fmt(r.net[p])}</td><td class="n muted">jadi ${fmt(S.game.totals[p] + r.net[p])}</td></tr>`).join('')}
   </table></div>
   ${warn ? `<p class="warn">${warn}</p>` : ''}
+  ${r.winner != null ? specialHTML() : ''}
+  <button class="btn big" data-act="speak">${ICON_SPEAK}Bacakan hasil</button>
   <div class="actions"><button class="btn ghost" data-act="result-back">← Kembali</button><button class="btn primary" data-act="commit">Simpan tangan</button></div>`;
+}
+
+/** Kejadian yang tidak kelihatan dari foto: ditanya di akhir, default tidak ada. */
+function specialHTML() {
+  const ex = S.cur.extras || {}, list = G.ruleOf(S).winExtras;
+  if (!list.length) return '';
+  const on = list.filter((x) => ex[x.key]);
+  return `<div class="card">
+    <h3>Ada kejadian khusus? Kalau tidak ada, lewati saja</h3>
+    ${list.map((x) => {
+      const id = `sp-${x.key}`;
+      const ctl = x.type === 'number'
+        ? `<label class="field"><span>${x.label}</span><input type="number" inputmode="numeric" min="0" data-focus="${id}" data-special="${x.key}" value="${ex[x.key] || 0}"></label>`
+        : `<button class="btn small chipwide ${ex[x.key] ? 'on' : ''}" data-act="special" data-k="${x.key}">${ex[x.key] ? '✓ ' : ''}${x.label}</button>`;
+      return `<div class="opt">${ctl}${tipBtn(id, x.info)}</div>${tipBox(id, x.info)}`;
+    }).join('')}
+    ${on.length ? '' : '<p class="muted small">Belum ada yang dipilih — dianggap tidak ada.</p>'}
+  </div>`;
+}
+
+/** Kalimat untuk dibacakan suara HP. */
+function speechText() {
+  const r = G.computeResult(S);
+  if (r.winner == null) return `Tangan ke ${S.game.handNo} seri. Tidak ada yang bayar.`;
+  const parts = [`${nameOf(r.winner)} menang${S.cur.selfDrawn ? ', tarik sendiri' : `, dari buangan ${nameOf(S.cur.discarder)}`}.`];
+  for (const t of r.transfers) parts.push(`${nameOf(t.from)} bayar ${nameOf(t.to)}, ${t.amt} poin.`);
+  return parts.join(' ');
 }
 
 function render() {
@@ -565,11 +657,33 @@ const actions = {
     if (U.reading) return;
     document.getElementById('photo-input').click();
   },
+  'mark-win'() { U.markWin = !U.markWin; render(); },
+  special(b) {
+    const ex = { ...(S.cur.extras || {}) };
+    ex[b.dataset.k] = !ex[b.dataset.k];
+    if (b.dataset.k === 'doubleRiichi' && ex.doubleRiichi) ex.riichi = false;
+    if (b.dataset.k === 'riichi' && ex.riichi) ex.doubleRiichi = false;
+    dispatch({ type: 'extras', extras: ex });
+  },
+  speak() {
+    if (!('speechSynthesis' in window)) return toast('HP ini tidak bisa membacakan suara.');
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(speechText());
+    u.lang = 'id-ID';
+    const v = speechSynthesis.getVoices().find((x) => /^id/i.test(x.lang));
+    if (v) u.voice = v;
+    u.rate = 0.95;
+    speechSynthesis.speak(u);
+  },
   'clear-photo'() { delete U.photos[photoKey()]; render(); },
   start() { dispatch({ type: 'start' }); },
   'close-setup'() { U.screen = null; go(); },
   'new-game'() { if (confirm('Reset semua skor dan mulai permainan baru?')) { U.screen = null; dispatch({ type: 'new-game' }); } },
-  'new-hand'() { U.draft = draftFromCur(); U.screen = 'who'; go(); },
+  'new-hand'() {
+    U.draft = draftFromCur();
+    if (U.draft.winner == null && mySeat() >= 0) U.draft.winner = mySeat(); // biasanya yang menekan = yang menang
+    U.screen = 'who'; go();
+  },
   'edit-win'() { U.draft = draftFromCur(); U.screen = 'who'; go(); },
   winner(b) {
     const v = b.dataset.p === 'draw' ? 'draw' : +b.dataset.p;
@@ -643,6 +757,11 @@ function onTile(zone, el) {
       flowers.push(f);
     }
   } else if (zone === 'hand') {
+    if (U.markWin) {
+      U.markWin = false;
+      if (t == null) return render();
+      return dispatch({ type: 'hand', seat: U.handSeat, winTile: t });
+    }
     if (t != null) tiles.splice(tiles.indexOf(t), 1);
     else if (f != null) flowers.splice(flowers.indexOf(f), 1);
   }
@@ -672,6 +791,8 @@ $app.addEventListener('change', (e) => {
   else if (t.dataset.opt) {
     const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Math.max(0, Number(t.value) || 0) : t.value;
     dispatch({ type: 'config', settings: { [t.dataset.opt]: v } });
+  } else if (t.dataset.special) {
+    dispatch({ type: 'extras', extras: { ...(S.cur.extras || {}), [t.dataset.special]: Math.max(0, Number(t.value) || 0) } });
   } else if (t.dataset.extra) U.draft.extras[t.dataset.extra] = t.type === 'checkbox' ? t.checked : Math.max(0, Number(t.value) || 0);
   else if (t.dataset.name != null || t.dataset.seatname != null || t.dataset.myname != null) {
     const seat = t.dataset.myname != null ? mySeat() : +(t.dataset.name ?? t.dataset.seatname);

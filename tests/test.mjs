@@ -172,4 +172,33 @@ test('MCR: tiga naga besar tidak dobel dengan pung naga', () => {
   assert.ok(!labels.includes('箭刻'));
 });
 
+test('Tunggu otomatis dari ubin menang: 4_6 bambu nunggu 5 = tunggu tengah, 1 macam ubin', () => {
+  let s = G.reduce(G.initialState({ names: ['A', 'B', 'C', 'D'], rule: 'riichi' }), { type: 'start' });
+  s = G.reduce(s, { type: 'declare', winner: 1, selfDrawn: false, discarder: 0 });
+  const five = parse('5s')[0];
+  s = G.reduce(s, { type: 'hand', seat: 1, tiles: parse('123456m78999p456s'), winTile: five });
+  const r = G.scoreSeat(s, 1);
+  assert.ok(!r.items.some((x) => x.label.startsWith('Pinfu'))); // kanchan -> bukan pinfu
+  assert.equal(r.fu, 40); // 20 + 10 tertutup-ron + 2 tunggu tengah = 32 -> 40
+  // tanpa ubin menang: pinfu dianggap boleh
+  s = G.reduce(s, { type: 'hand', seat: 1, winTile: null });
+  assert.ok(G.scoreSeat(s, 1).items.some((x) => x.label.startsWith('Pinfu')));
+  // klasik: tunggu 1 macam ubin +2
+  let k = G.reduce(G.initialState({ names: ['A', 'B', 'C', 'D'] }), { type: 'start' });
+  k = G.reduce(k, { type: 'declare', winner: 1, selfDrawn: false, discarder: 0 });
+  k = G.reduce(k, { type: 'hand', seat: 1, tiles: parse('123456m78999p456s'), winTile: five });
+  assert.ok(G.scoreSeat(k, 1).items.some((x) => x.label.startsWith('Tunggu 1 macam')));
+});
+
+test('Riichi: pung dilengkapi buangan tidak membatalkan riichi, tapi pungnya dihitung terbuka', () => {
+  let s = G.reduce(G.initialState({ names: ['A', 'B', 'C', 'D'], rule: 'riichi' }), { type: 'start' });
+  s = G.reduce(s, { type: 'declare', winner: 1, selfDrawn: false, discarder: 0, extras: { riichi: true } });
+  const t2 = parse('2p')[0];
+  s = G.reduce(s, { type: 'hand', seat: 1, tiles: parse('222p555p888s345m77s'), winTile: t2 });
+  const r = G.scoreSeat(s, 1);
+  assert.ok(r.items.some((x) => x.label === 'Riichi'));
+  // 3 pung tertutup jadi 2 karena 222p dari buangan -> tidak ada sanankou
+  assert.ok(!r.items.some((x) => x.label.startsWith('Sanankou')));
+});
+
 console.log(`\nSemua ${n} tes lulus.`);

@@ -3,7 +3,7 @@
 // Dealer (Timur) bayar/terima dobel.
 import { countsOf } from '../tiles.js';
 import { decomposeWinning, partialSets, isThirteenOrphans } from '../decompose.js';
-import { features, groupLabel, ownFlowers, netOf, windTile, tileName, flowerName, isDragon, isTermOrHonor, loserCountWarning } from './common.js';
+import { features, groupLabel, ownFlowers, netOf, windTile, tileName, flowerName, isDragon, isTermOrHonor, loserCountWarning, waitVariants } from './common.js';
 
 export const id = 'classical';
 export const name = 'Klasik (semua pemain hitung)';
@@ -20,7 +20,6 @@ export const settingsSpec = [
 ];
 
 export const winExtras = [
-  { key: 'singleWait', label: 'Tunggu 1 ubin saja (+2)', info: 'Sebelum menang kamu cuma menunggu SATU macam ubin. Contoh: punya 4 dan 6 bambu, tinggal butuh 5 bambu. Atau semua set sudah jadi, tinggal menunggu pasangan untuk 1 ubin.' },
   { key: 'lastTile', label: 'Ubin terakhir tembok (×2)', info: 'Menang pakai ubin paling terakhir di tembok (atau ubin buangan paling terakhir sebelum permainan seri). Skor dikali 2.' },
   { key: 'replacement', label: 'Dari ubin pengganti kong (×2)', info: 'Setelah membuat kong, kamu ambil 1 ubin pengganti dari ujung tembok, dan ubin itu yang membuatmu menang. Skor dikali 2.' },
   { key: 'robKong', label: 'Merampok kong (×2)', info: 'Pemain lain menambah 1 ubin ke pung terbukanya supaya jadi kong, padahal ubin itu yang kamu tunggu. Kamu boleh "merampok" ubin itu untuk menang. Skor dikali 2.' },
@@ -61,9 +60,10 @@ function finish(items, settings, limitLabel) {
 function evaluate(groups, extraPairs, p) {
   const { tiles, flowers, open, isWinner, seat, prevailing, win, settings } = p;
   const items = [];
+  const ronPung = (win.extras || {}).ronPung;
   for (const g of groups) {
     const o = !!open[g.key];
-    const pts = meldPoints(g, o);
+    const pts = meldPoints(g, o || g.key === ronPung);
     if (pts) items.push({ label: groupLabel(g, o), pts });
     if (g.type === 'pung' || g.type === 'kong') {
       if (isDragon(g.tile)) items.push({ label: `${groupLabel(g, o).split(' (')[0]} — naga`, dbl: 1 });
@@ -90,7 +90,7 @@ function evaluate(groups, extraPairs, p) {
     const ex = win.extras || {};
     items.push({ label: 'Mahjong (menang)', pts: 20 });
     if (win.selfDrawn) items.push({ label: 'Menang sendiri (tarik tembok)', pts: 2 });
-    if (ex.singleWait) items.push({ label: 'Tunggu 1 ubin saja', pts: 2 });
+    if (ex.oneTile) items.push({ label: 'Tunggu 1 macam ubin saja (otomatis)', pts: 2 });
     if (F.noChows) items.push({ label: 'Semua pung/kong (tanpa chow)', dbl: 1 });
     if (F.concealed) items.push({ label: 'Tangan tertutup semua', dbl: 1 });
     if (F.fullFlush) items.push({ label: 'Satu jenis murni', dbl: 3 });
@@ -98,7 +98,7 @@ function evaluate(groups, extraPairs, p) {
     if (F.noSimples && !F.allHonors) items.push({ label: 'Hanya ujung (1/9) & kehormatan', dbl: 1 });
     if (F.dragonPungs === 2 && F.pairDragon) items.push({ label: 'Tiga naga kecil', dbl: 1 });
     const basicSoFar = items.reduce((a, x) => a + (x.pts || 0), 0);
-    if (F.allChows && basicSoFar === 20 + (win.selfDrawn ? 2 : 0) + (ex.singleWait ? 2 : 0) && !flowers.length)
+    if (F.allChows && basicSoFar === 20 + (win.selfDrawn ? 2 : 0) + (ex.oneTile ? 2 : 0) && !flowers.length)
       items.push({ label: 'Tangan tanpa poin (semua chow)', dbl: 1 });
     if (ex.lastTile) items.push({ label: 'Ubin terakhir tembok', dbl: 1 });
     if (ex.replacement) items.push({ label: 'Ubin pengganti kong', dbl: 1 });
@@ -120,8 +120,10 @@ export function scoreHand(p) {
     if (!cands.length) return { ok: false, error: 'Ubin belum membentuk tangan menang (4 set + 1 pasang).' };
     let best = null;
     for (const groups of cands) {
-      const r = evaluate(groups, [], p);
-      if (!best || r.total > best.total) best = r;
+      for (const v of waitVariants(p, groups)) {
+        const r = evaluate(groups, [], v);
+        if (!best || r.total > best.total) best = r;
+      }
     }
     return { ok: true, ...best };
   }

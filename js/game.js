@@ -1,7 +1,8 @@
 // Logika permainan bersama. Dipakai di HP (mode satu HP) DAN di server ruang (mode HP masing-masing),
 // supaya hitungan di semua HP selalu sama. Semua perubahan lewat reduce(state, op).
 import { RULES } from './rules/index.js';
-import { WIND_NAME } from './tiles.js';
+import { WIND_NAME, countsOf } from './tiles.js';
+import { waitCount } from './decompose.js';
 
 export const P4 = [0, 1, 2, 3];
 
@@ -20,7 +21,7 @@ export function initialState(opts = {}) {
   };
 }
 
-const emptyHand = () => ({ tiles: [], flowers: [], open: {}, submitted: false });
+const emptyHand = () => ({ tiles: [], flowers: [], open: {}, winTile: null, submitted: false });
 
 export const ruleOf = (s) => RULES[s.rule];
 export const settingsOf = (s) => s.settings[s.rule];
@@ -39,8 +40,11 @@ export const allSubmitted = (s) => !!s.cur && neededSeats(s).every((p) => s.cur.
 
 export function scoreSeat(s, p) {
   const c = s.cur, h = c.hands[p];
+  const isW = p === c.winner;
+  const winTile = isW && h.tiles.includes(h.winTile) ? h.winTile : null;
   return ruleOf(s).scoreHand({
     tiles: h.tiles, flowers: h.flowers, open: h.open,
+    winTile, waitCount: winTile == null ? 0 : waitCount(countsOf(h.tiles), winTile),
     isWinner: p === c.winner, seat: seatWind(s, p), prevailing: prevailing(s),
     win: { selfDrawn: c.selfDrawn, extras: c.extras || {} }, settings: settingsOf(s),
   });
@@ -140,7 +144,16 @@ export function reduce(state, op) {
       if (Array.isArray(op.tiles)) h.tiles = op.tiles.filter((t) => Number.isInteger(t) && t >= 0 && t < 34).sort((a, b) => a - b);
       if (Array.isArray(op.flowers)) h.flowers = op.flowers.filter((f) => Number.isInteger(f) && f >= 1 && f <= 8).sort((a, b) => a - b);
       if (op.open && typeof op.open === 'object') h.open = op.open;
+      if ('winTile' in op) h.winTile = Number.isInteger(op.winTile) && op.winTile >= 0 && op.winTile < 34 ? op.winTile : null;
+      if (h.winTile != null && !h.tiles.includes(h.winTile)) h.winTile = null;
       if (typeof op.submitted === 'boolean') h.submitted = op.submitted;
+      return s;
+    }
+    case 'extras': { // kejadian khusus, ditanya di layar hasil
+      if (!s.cur || !op.extras || typeof op.extras !== 'object') return s;
+      const ex = {};
+      for (const [k, v] of Object.entries(op.extras)) ex[String(k).slice(0, 20)] = typeof v === 'number' ? Math.max(0, Math.min(40, Math.floor(v))) : !!v;
+      s.cur.extras = ex;
       return s;
     }
     case 'cancel-hand': {

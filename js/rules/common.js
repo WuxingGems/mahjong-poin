@@ -55,3 +55,43 @@ export function netOf(transfers) {
   }
   return net;
 }
+
+/**
+ * Cara ubin menang "masuk" ke tiap set: pasang (tunggu pasangan), chow tengah, chow tepi,
+ * chow dua sisi, atau melengkapi pung. Kalau ubin menang tidak diketahui -> [null].
+ */
+export function waitKinds(groups, winTile) {
+  if (winTile == null) return [null];
+  const out = [];
+  for (const g of groups) {
+    if (g.type === 'pair' && g.tile === winTile) out.push({ kind: 'single' });
+    else if (g.type === 'pung' && g.tile === winTile) out.push({ kind: 'pung', key: g.key });
+    else if (g.type === 'chow' && winTile >= g.tile && winTile <= g.tile + 2) {
+      const off = winTile - g.tile, n = (g.tile % 9) + 1;
+      if (off === 1) out.push({ kind: 'closed' });
+      else if ((off === 2 && n === 1) || (off === 0 && n === 7)) out.push({ kind: 'edge' });
+      else out.push({ kind: 'open' });
+    }
+  }
+  return out.length ? out : [{ kind: 'single' }]; // 7 pasang / 13 yatim
+}
+
+/**
+ * Versi-versi tangan untuk tiap cara ubin menang masuk. Isi extras otomatis:
+ * waitKind ('single'|'closed'|'edge'|'open'|'pung'), oneTile (hanya 1 macam ubin yang ditunggu).
+ * ronPung = kunci pung yang dilengkapi dari buangan.
+ */
+export function waitVariants(p, groups) {
+  if (p.winTile == null) return [p];
+  const seen = new Set();
+  return waitKinds(groups, p.winTile).filter((o) => {
+    const k = `${o.kind}|${o.key || ''}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).map((o) => ({
+    ...p,
+    // Pung yang dilengkapi buangan: dihitung terbuka untuk nilai pung saja, tangan tetap "tertutup".
+    win: { ...p.win, extras: { ...p.win.extras, waitKind: o.kind, oneTile: p.waitCount === 1, ronPung: o.kind === 'pung' && !p.win.selfDrawn ? o.key : null } },
+  }));
+}

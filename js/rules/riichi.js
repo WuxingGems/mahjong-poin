@@ -2,7 +2,7 @@
 // Poin dasar = fu × 2^(2+han), dibatasi mangan dst. Tanpa bunga.
 import { countsOf, suitOf, numOf, isHonor, isTerminal } from '../tiles.js';
 import { decomposeWinning, isSevenPairs, isThirteenOrphans } from '../decompose.js';
-import { groupLabel, netOf, windTile, isDragon, isWind, isTermOrHonor } from './common.js';
+import { groupLabel, netOf, windTile, isDragon, isWind, isTermOrHonor, waitVariants } from './common.js';
 
 export const id = 'riichi';
 export const name = 'Riichi Jepang';
@@ -20,7 +20,6 @@ export const winExtras = [
   { key: 'riichi', label: 'Riichi (+1 han)', info: 'Kamu sudah menyatakan riichi (tangan tertutup, tinggal 1 ubin, taruh taruhan 1000).' },
   { key: 'doubleRiichi', label: 'Double riichi (+2 han)', info: 'Riichi dinyatakan pada giliran buang pertama, sebelum ada yang ambil ubin dari buangan.' },
   { key: 'ippatsu', label: 'Ippatsu (+1 han)', info: 'Menang dalam 1 putaran setelah riichi, tanpa ada yang ambil buangan di tengahnya.' },
-  { key: 'singleWait', label: 'Tunggu 1 ubin (kanchan / penchan / tanki)', info: 'Cara menunggu yang cuma 1 macam ubin: di tengah (4_6 nunggu 5), di tepi (1-2 nunggu 3 atau 8-9 nunggu 7), atau nunggu pasangan. Menambah 2 fu dan membatalkan pinfu.' },
   { key: 'lastTile', label: 'Haitei / Houtei (+1 han)', info: 'Menang pakai ubin terakhir tembok (haitei) atau buangan terakhir (houtei).' },
   { key: 'replacement', label: 'Rinshan kaihou (+1 han)', info: 'Menang pakai ubin pengganti setelah membuat kong.' },
   { key: 'robKong', label: 'Chankan (+1 han)', info: 'Menang dengan merampok ubin yang dipakai pemain lain untuk menambah pung jadi kong.' },
@@ -100,6 +99,7 @@ function flushYaku(tiles, closed, yaku) {
 function evaluate(groups, p) {
   const { tiles, open, seat, prevailing, settings, win } = p;
   const ex = win.extras || {};
+  const badWait = ['single', 'closed', 'edge'].includes(ex.waitKind);
   const isOpen = (g) => !!open[g.key];
   const closed = groups.every((g) => !isOpen(g));
   const melds = groups.filter((g) => g.type !== 'pair');
@@ -107,14 +107,15 @@ function evaluate(groups, p) {
   const chows = melds.filter((g) => g.type === 'chow');
   const pungs = melds.filter((g) => g.type !== 'chow');
   const kongs = melds.filter((g) => g.type === 'kong');
-  const closedPungs = pungs.filter((g) => !isOpen(g)).length;
+  const pungOpen = (g) => isOpen(g) || g.key === ex.ronPung;
+  const closedPungs = pungs.filter((g) => !pungOpen(g)).length;
   const dragonP = pungs.filter((g) => isDragon(g.tile)).length;
   const windP = pungs.filter((g) => isWind(g.tile)).length;
 
   // --- yakuman ---
   const ym = [];
   tileYakuman(tiles, p, ym);
-  if (closedPungs === 4 && (win.selfDrawn || ex.singleWait)) ym.push({ label: 'Suuankou — 4 pung tertutup', yakuman: 1 });
+  if (closedPungs === 4) ym.push({ label: 'Suuankou — 4 pung tertutup', yakuman: 1 });
   if (dragonP === 3) ym.push({ label: 'Daisangen — tiga naga besar', yakuman: 1 });
   if (windP === 4) ym.push({ label: 'Daisuushii — empat angin besar', yakuman: 1 });
   else if (windP === 3 && pair && isWind(pair.tile)) ym.push({ label: 'Shousuushii — empat angin kecil', yakuman: 1 });
@@ -133,7 +134,7 @@ function evaluate(groups, p) {
   const yaku = [];
   situational(closed, p, yaku);
   const pairYakuhai = pair && yakuhaiTile(pair.tile, seat, prevailing);
-  const pinfu = closed && chows.length === 4 && !pairYakuhai && !ex.singleWait;
+  const pinfu = closed && chows.length === 4 && !pairYakuhai && !badWait;
   if (pinfu) yaku.push({ label: 'Pinfu — semua chow, tanpa fu', han: 1 });
   if (tiles.every((t) => !isTermOrHonor(t)) && (closed || settings.kuitan)) yaku.push({ label: 'Tanyao — tanpa 1, 9 & kehormatan', han: 1 });
 
@@ -181,7 +182,7 @@ function evaluate(groups, p) {
     if (win.selfDrawn) fu += 2;
     for (const g of pungs) {
       let f = isTermOrHonor(g.tile) ? 4 : 2;
-      if (!isOpen(g)) f *= 2;
+      if (!pungOpen(g)) f *= 2;
       if (g.type === 'kong') f *= 4;
       fu += f;
     }
@@ -190,7 +191,7 @@ function evaluate(groups, p) {
       if (pair.tile === windTile(seat)) fu += 2;
       if (pair.tile === windTile(prevailing)) fu += 2;
     }
-    if (ex.singleWait) fu += 2;
+    if (badWait) fu += 2;
     if (fu === 20 && !closed) fu = 30; // tangan terbuka tanpa fu tambahan
     fu = Math.ceil(fu / 10) * 10;
   }
@@ -203,8 +204,10 @@ export function scoreHand(p) {
   if (isThirteenOrphans(c)) return { ok: true, ...finish([], [{ label: 'Kokushi musou — 13 yatim', yakuman: 1 }], 0, p) };
   let best = null;
   for (const groups of decomposeWinning(c)) {
-    const r = evaluate(groups, p);
-    if (!best || r.total > best.total || (r.total === best.total && r.han > best.han)) best = r;
+    for (const v of waitVariants(p, groups)) {
+      const r = evaluate(groups, v);
+      if (!best || r.total > best.total || (r.total === best.total && r.han > best.han)) best = r;
+    }
   }
   if (isSevenPairs(c)) {
     const ym = [];

@@ -79,3 +79,23 @@ export function isThirteenOrphans(counts) {
   }
   return total === 14;
 }
+
+/** Tangan 14 ubin sudah menang? (4 set + pasang, 7 pasang, atau 13 yatim) */
+export function isWinningCounts(counts) {
+  return isThirteenOrphans(counts) || isSevenPairs(counts) || decomposeWinning(counts).length > 0;
+}
+
+/** Berapa macam ubin yang bisa melengkapi tangan sebelum ubin menang masuk. */
+export function waitCount(counts, winTile) {
+  if (winTile == null || !counts[winTile]) return 0;
+  const c = counts.slice();
+  c[winTile]--;
+  let n = 0;
+  for (let t = 0; t < 34; t++) {
+    if (c[t] >= 4) continue;
+    c[t]++;
+    if (isWinningCounts(c)) n++;
+    c[t]--;
+  }
+  return n;
+}
