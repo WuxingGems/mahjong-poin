@@ -1,3 +1,7 @@
 server/.wrangler/
 .wrangler/
 node_modules/
+
+# Foto uji pribadi jangan ikut terbit
+WhatsApp Image*
+*.jpeg

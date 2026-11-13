@@ -38,10 +38,10 @@ let S = null; // state permainan yang sedang tampil
 let conn = null;
 const U = { markWin: false, mode: null, screen: null, draft: null, editSeat: null, handSeat: null, status: '', code: null, tips: new Set(), photos: {}, reading: false, vision: null };
 const MODELS = [
-  ['free', 'Gratis (Cloudflare AI)'],
-  ['haiku', 'Claude Haiku 5.5 — cepat & murah'],
-  ['sonnet', 'Claude Sonnet 5.5 — seimbang'],
-  ['opus', 'Claude Opus 5.5 — paling teliti'],
+  ['free', 'Gratis (Cloudflare AI) — kurang teliti'],
+  ['haiku', 'Claude Haiku 5.5 — ±Rp4/foto, kurang teliti'],
+  ['sonnet', 'Claude Sonnet 5.5 — ±Rp90/foto, lumayan'],
+  ['opus', 'Claude Opus 5.5 — ±Rp170/foto, paling teliti (disarankan)'],
 ];
 if (!prefs.visionModel) prefs.visionModel = 'free';
 
@@ -361,7 +361,7 @@ function viewSetup() {
       const off = v !== 'free' && U.vision && !U.vision.claude;
       return `<option value="${v}" ${v === prefs.visionModel ? 'selected' : ''} ${off ? 'disabled' : ''}>${l}${off ? ' — perlu kunci API' : ''}</option>`;
     }).join('')}</select>
-    <p class="ruledesc">Yang gratis bisa langsung dicoba, tapi kurang teliti. Model Claude jauh lebih akurat, dan baru bisa dipilih setelah kunci API Anthropic dipasang di server. Apa pun hasilnya, ubin tetap bisa dibetulkan dengan diketuk.</p>
+    <p class="ruledesc">Diuji 13 Nov pakai foto asli: Opus 5.5 benar semua (14/14), Haiku & Sonnet sering salah baca bambu. Opus dipakai otomatis sekarang karena paling akurat dan tetap murah (±Rp170/foto). Apa pun hasilnya, ubin tetap bisa dibetulkan dengan diketuk.</p>
   </div>
   ${!inGame && !online ? '<button class="btn primary big" data-act="start">Mulai permainan</button>' : '<div class="actions"><button class="btn primary" data-act="close-setup">Kembali ke meja</button></div>'}
   ${inGame ? `<div class="card"><h3>Permainan</h3><button class="btn danger big" data-act="new-game">Mulai permainan baru (skor direset${online ? ' untuk semua' : ''})</button></div>` : ''}
@@ -787,7 +787,7 @@ $app.addEventListener('change', (e) => {
   const t = e.target;
   if (t.dataset.set === 'rule') dispatch({ type: 'config', rule: t.value });
   else if (t.dataset.set === 'firstDealer') dispatch({ type: 'config', firstDealer: +t.value });
-  else if (t.dataset.set === 'vision') { prefs.visionModel = t.value; savePrefs(); render(); }
+  else if (t.dataset.set === 'vision') { prefs.visionModel = t.value; prefs.visionModelChosen = true; savePrefs(); render(); }
   else if (t.dataset.opt) {
     const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Math.max(0, Number(t.value) || 0) : t.value;
     dispatch({ type: 'config', settings: { [t.dataset.opt]: v } });
@@ -816,6 +816,7 @@ document.getElementById('photo-input').addEventListener('change', (e) => { const
 visionInfo().then((v) => {
   U.vision = v;
   if (!v.claude && prefs.visionModel !== 'free') { prefs.visionModel = 'free'; savePrefs(); }
+  else if (v.claude && !prefs.visionModelChosen) { prefs.visionModel = 'opus'; savePrefs(); } // paling teliti, diuji 13 Nov: 14/14 benar
   if (U.mode) render();
 }).catch(() => {});
 
